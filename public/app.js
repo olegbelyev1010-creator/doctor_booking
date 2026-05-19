@@ -11,7 +11,10 @@ const sidebarOverlay = document.getElementById('sidebar-overlay');
 const sidebarClose = document.getElementById('sidebar-close');
 const quickReplies = document.getElementById('quick-replies');
 const chatPanel = document.querySelector('.chat-panel');
-const isMobileLayout = window.matchMedia('(max-width: 820px)').matches;
+const mobileMediaQuery = window.matchMedia('(max-width: 820px)');
+const isMobileLayout = () => mobileMediaQuery.matches;
+
+let keyboardSyncTimer = null;
 
 let sessionId = localStorage.getItem('doctorBookingSessionId') || null;
 let isLoading = false;
@@ -143,60 +146,83 @@ function setMobileAppHeight() {
   document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
 }
 
-function updateKeyboardInset() {
-  const vv = window.visualViewport;
-  if (!vv) {
-    document.documentElement.style.setProperty('--keyboard-inset', '0px');
+function syncVisualViewport() {
+  if (!isMobileLayout()) {
+    document.documentElement.style.removeProperty('--vv-top');
+    document.documentElement.style.removeProperty('--vv-height');
     return;
   }
-  const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
-  if (inset > 0 && window.scrollY !== 0) {
+
+  const vv = window.visualViewport;
+  if (!vv) {
+    document.documentElement.style.setProperty('--vv-top', '0px');
+    document.documentElement.style.setProperty('--vv-height', `${window.innerHeight}px`);
+    return;
+  }
+
+  document.documentElement.style.setProperty('--vv-top', `${vv.offsetTop}px`);
+  document.documentElement.style.setProperty('--vv-height', `${vv.height}px`);
+
+  if (vv.offsetTop > 0 || window.scrollY > 0) {
     window.scrollTo(0, 0);
   }
+}
+
+function scheduleViewportSync() {
+  syncVisualViewport();
+  requestAnimationFrame(syncVisualViewport);
+
+  if (keyboardSyncTimer) clearInterval(keyboardSyncTimer);
+  let ticks = 0;
+  keyboardSyncTimer = setInterval(() => {
+    syncVisualViewport();
+    ticks += 1;
+    if (ticks >= 12) {
+      clearInterval(keyboardSyncTimer);
+      keyboardSyncTimer = null;
+    }
+  }, 50);
 }
 
 function setupMobileViewport() {
-  if (!isMobileLayout) return;
-
-  const onViewportChange = () => {
-    updateKeyboardInset();
-  };
-
   const onLayoutChange = () => {
     setMobileAppHeight();
-    updateKeyboardInset();
+    syncVisualViewport();
   };
 
   onLayoutChange();
-  window.visualViewport?.addEventListener('resize', onViewportChange);
-  window.visualViewport?.addEventListener('scroll', onViewportChange);
+
+  window.visualViewport?.addEventListener('resize', scheduleViewportSync);
+  window.visualViewport?.addEventListener('scroll', syncVisualViewport);
   window.addEventListener('resize', onLayoutChange);
-  window.addEventListener('orientationchange', () => setTimeout(onLayoutChange, 150));
+  window.addEventListener('orientationchange', () => setTimeout(onLayoutChange, 200));
+  mobileMediaQuery.addEventListener('change', onLayoutChange);
+
+  document.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!isMobileLayout()) return;
+      if (e.target.closest('.messages, .sidebar, .quick-replies')) return;
+      e.preventDefault();
+    },
+    { passive: false }
+  );
 }
 
 function setupMobileInput() {
-  if (!isMobileLayout) return;
-
   input.addEventListener('focus', () => {
+    if (!isMobileLayout()) return;
     chatPanel?.classList.add('keyboard-open');
-    window.scrollTo(0, 0);
-    updateKeyboardInset();
-    requestAnimationFrame(updateKeyboardInset);
-    setTimeout(() => {
-      updateKeyboardInset();
-      scrollToBottom(true);
-    }, 100);
-    setTimeout(() => {
-      updateKeyboardInset();
-      scrollToBottom(true);
-    }, 350);
+    scheduleViewportSync();
+    setTimeout(() => scrollToBottom(true), 120);
+    setTimeout(() => scrollToBottom(true), 400);
   });
 
   input.addEventListener('blur', () => {
     chatPanel?.classList.remove('keyboard-open');
     setTimeout(() => {
-      document.documentElement.style.setProperty('--keyboard-inset', '0px');
+      scheduleViewportSync();
+      scrollToBottom(false);
     }, 120);
   });
 }

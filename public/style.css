@@ -24,7 +24,8 @@
   --header-h: 68px;
   --footer-h: auto;
   --app-height: 100dvh;
-  --keyboard-inset: 0px;
+  --vv-top: 0px;
+  --vv-height: 100dvh;
 }
 
 * {
@@ -697,8 +698,10 @@ body {
 
 /* ——— Mobile ——— */
 @media (max-width: 820px) {
-  html,
-  body {
+  html {
+    position: fixed;
+    inset: 0;
+    width: 100%;
     height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
@@ -708,6 +711,10 @@ body {
     position: fixed;
     inset: 0;
     width: 100%;
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
   }
 
   body.menu-open {
@@ -715,11 +722,11 @@ body {
   }
 
   .app {
+    position: relative;
     height: var(--app-height, 100dvh);
     min-height: 0;
     max-width: 100%;
-    display: flex;
-    flex-direction: column;
+    width: 100%;
   }
 
   .sidebar-overlay {
@@ -780,24 +787,28 @@ body {
   }
 
   .chat-panel {
-    flex: 1;
-    min-height: 0;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--vv-top, 0px);
     width: 100%;
-    height: var(--app-height, 100dvh);
-    max-height: var(--app-height, 100dvh);
+    height: var(--vv-height, var(--app-height, 100dvh));
+    max-height: var(--vv-height, var(--app-height, 100dvh));
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
+    z-index: 20;
+    background: var(--bg-chat);
+    transform: translateZ(0);
+    -webkit-transform: translateZ(0);
   }
 
-  .chat-panel.keyboard-open .chat-header {
-    position: relative;
-    z-index: 30;
-  }
-
-  .chat-panel.keyboard-open .chat-footer {
-    z-index: 40;
+  .chat-panel.keyboard-open .messages {
+    scroll-padding-bottom: 0.5rem;
   }
 
   .chat-header {
+    flex-shrink: 0;
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -822,6 +833,8 @@ body {
   }
 
   .messages {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 0.75rem 0.85rem 0.5rem;
   }
 
@@ -845,6 +858,7 @@ body {
   }
 
   .quick-replies {
+    flex-shrink: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
@@ -867,15 +881,17 @@ body {
   .chat-footer {
     flex-shrink: 0;
     padding: 0.6rem 0.85rem;
-    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
+    padding-bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
     background: var(--surface);
     box-shadow: 0 -4px 20px rgba(26, 43, 60, 0.06);
-    transition: padding-bottom 0.15s ease-out;
   }
 
   .chat-body {
-    flex: 1;
+    flex: 1 1 auto;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
   .chat-input textarea {
