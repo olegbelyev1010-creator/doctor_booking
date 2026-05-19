@@ -1,0 +1,14 @@
+{
+  "name": "doctor-booking-agent",
+  "version": "1.0.0",
+  "description": "AI agent prototype for online doctor consultation booking",
+  "type": "module",
+  "scripts": {
+    "generate:doctors": "node scripts/generate-doctors.js",
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
