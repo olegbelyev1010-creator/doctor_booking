@@ -139,18 +139,40 @@ function scrollToBottom(smooth = false) {
   });
 }
 
+function setMobileAppHeight() {
+  document.documentElement.style.setProperty('--app-height', `${window.innerHeight}px`);
+}
+
+function updateKeyboardInset() {
+  const vv = window.visualViewport;
+  if (!vv) {
+    document.documentElement.style.setProperty('--keyboard-inset', '0px');
+    return;
+  }
+  const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
+  if (inset > 0 && window.scrollY !== 0) {
+    window.scrollTo(0, 0);
+  }
+}
+
 function setupMobileViewport() {
   if (!isMobileLayout) return;
 
-  const setAppHeight = () => {
-    const height = window.visualViewport?.height ?? window.innerHeight;
-    document.documentElement.style.setProperty('--app-height', `${height}px`);
+  const onViewportChange = () => {
+    updateKeyboardInset();
   };
 
-  setAppHeight();
-  window.visualViewport?.addEventListener('resize', setAppHeight);
-  window.visualViewport?.addEventListener('scroll', setAppHeight);
-  window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150));
+  const onLayoutChange = () => {
+    setMobileAppHeight();
+    updateKeyboardInset();
+  };
+
+  onLayoutChange();
+  window.visualViewport?.addEventListener('resize', onViewportChange);
+  window.visualViewport?.addEventListener('scroll', onViewportChange);
+  window.addEventListener('resize', onLayoutChange);
+  window.addEventListener('orientationchange', () => setTimeout(onLayoutChange, 150));
 }
 
 function setupMobileInput() {
@@ -158,17 +180,24 @@ function setupMobileInput() {
 
   input.addEventListener('focus', () => {
     chatPanel?.classList.add('keyboard-open');
-    setTimeout(() => scrollToBottom(true), 280);
+    window.scrollTo(0, 0);
+    updateKeyboardInset();
+    requestAnimationFrame(updateKeyboardInset);
+    setTimeout(() => {
+      updateKeyboardInset();
+      scrollToBottom(true);
+    }, 100);
+    setTimeout(() => {
+      updateKeyboardInset();
+      scrollToBottom(true);
+    }, 350);
   });
 
   input.addEventListener('blur', () => {
     chatPanel?.classList.remove('keyboard-open');
     setTimeout(() => {
-      document.documentElement.style.setProperty(
-        '--app-height',
-        `${window.visualViewport?.height ?? window.innerHeight}px`
-      );
-    }, 100);
+      document.documentElement.style.setProperty('--keyboard-inset', '0px');
+    }, 120);
   });
 }
 

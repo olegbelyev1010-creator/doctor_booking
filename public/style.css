@@ -23,6 +23,8 @@
   --font: 'Manrope', system-ui, -apple-system, sans-serif;
   --header-h: 68px;
   --footer-h: auto;
+  --app-height: 100dvh;
+  --keyboard-inset: 0px;
 }
 
 * {
@@ -781,6 +783,18 @@ body {
     flex: 1;
     min-height: 0;
     width: 100%;
+    height: var(--app-height, 100dvh);
+    max-height: var(--app-height, 100dvh);
+    overflow: hidden;
+  }
+
+  .chat-panel.keyboard-open .chat-header {
+    position: relative;
+    z-index: 30;
+  }
+
+  .chat-panel.keyboard-open .chat-footer {
+    z-index: 40;
   }
 
   .chat-header {
@@ -851,10 +865,17 @@ body {
   }
 
   .chat-footer {
+    flex-shrink: 0;
     padding: 0.6rem 0.85rem;
-    padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
+    padding-bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px) + var(--keyboard-inset, 0px));
     background: var(--surface);
     box-shadow: 0 -4px 20px rgba(26, 43, 60, 0.06);
+    transition: padding-bottom 0.15s ease-out;
+  }
+
+  .chat-body {
+    flex: 1;
+    min-height: 0;
   }
 
   .chat-input textarea {
