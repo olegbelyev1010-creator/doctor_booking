@@ -28,7 +28,10 @@ function escapeHtml(text) {
 }
 
 function formatLine(line) {
-  return escapeHtml(line).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const normalized = line
+    .replace(/какого врача и на какое время/gi, 'к какому врачу и на какое время')
+    .replace(/какого врача/gi, 'к какому врачу');
+  return escapeHtml(normalized).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 }
 
 function formatMarkdown(text) {
