@@ -5,7 +5,13 @@ const sendBtn = document.getElementById('send-btn');
 const statusEl = document.getElementById('status');
 const resetBtn = document.getElementById('reset-btn');
 const resetBtnMobile = document.getElementById('reset-btn-mobile');
+const menuBtn = document.getElementById('menu-btn');
+const sidebar = document.getElementById('sidebar');
+const sidebarOverlay = document.getElementById('sidebar-overlay');
+const sidebarClose = document.getElementById('sidebar-close');
 const quickReplies = document.getElementById('quick-replies');
+const chatPanel = document.querySelector('.chat-panel');
+const isMobileLayout = window.matchMedia('(max-width: 820px)').matches;
 
 let sessionId = localStorage.getItem('doctorBookingSessionId') || null;
 let isLoading = false;
@@ -121,9 +127,45 @@ function getTimeLabel() {
   return new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 }
 
-function scrollToBottom() {
+function scrollToBottom(smooth = false) {
   requestAnimationFrame(() => {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    messagesEl.scrollTo({
+      top: messagesEl.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+  });
+}
+
+function setupMobileViewport() {
+  if (!isMobileLayout) return;
+
+  const setAppHeight = () => {
+    const height = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty('--app-height', `${height}px`);
+  };
+
+  setAppHeight();
+  window.visualViewport?.addEventListener('resize', setAppHeight);
+  window.visualViewport?.addEventListener('scroll', setAppHeight);
+  window.addEventListener('orientationchange', () => setTimeout(setAppHeight, 150));
+}
+
+function setupMobileInput() {
+  if (!isMobileLayout) return;
+
+  input.addEventListener('focus', () => {
+    chatPanel?.classList.add('keyboard-open');
+    setTimeout(() => scrollToBottom(true), 280);
+  });
+
+  input.addEventListener('blur', () => {
+    chatPanel?.classList.remove('keyboard-open');
+    setTimeout(() => {
+      document.documentElement.style.setProperty(
+        '--app-height',
+        `${window.visualViewport?.height ?? window.innerHeight}px`
+      );
+    }, 100);
   });
 }
 
@@ -273,6 +315,27 @@ quickReplies?.addEventListener('click', (e) => {
   handleSubmit(chip.dataset.text);
 });
 
+function openSidebar() {
+  sidebar?.classList.add('is-open');
+  sidebarOverlay?.classList.add('is-visible');
+  sidebarOverlay?.setAttribute('aria-hidden', 'false');
+  menuBtn?.setAttribute('aria-expanded', 'true');
+  document.body.classList.add('menu-open');
+}
+
+function closeSidebar() {
+  sidebar?.classList.remove('is-open');
+  sidebarOverlay?.classList.remove('is-visible');
+  sidebarOverlay?.setAttribute('aria-hidden', 'true');
+  menuBtn?.setAttribute('aria-expanded', 'false');
+  document.body.classList.remove('menu-open');
+}
+
+function toggleSidebar() {
+  if (sidebar?.classList.contains('is-open')) closeSidebar();
+  else openSidebar();
+}
+
 async function resetChat() {
   if (sessionId) {
     await fetch('/api/chat/reset', {
@@ -287,13 +350,23 @@ async function resetChat() {
   messagesEl.innerHTML = '';
   quickReplies?.classList.remove('hidden');
   appendMessage('assistant', WELCOME);
+  closeSidebar();
   input.focus();
 }
+
+menuBtn?.addEventListener('click', toggleSidebar);
+sidebarOverlay?.addEventListener('click', closeSidebar);
+sidebarClose?.addEventListener('click', closeSidebar);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeSidebar();
+});
 
 resetBtn?.addEventListener('click', resetChat);
 resetBtnMobile?.addEventListener('click', resetChat);
 
 appendMessage('assistant', WELCOME);
+setupMobileViewport();
+setupMobileInput();
 
 fetch('/api/stats')
   .then((r) => r.json())
