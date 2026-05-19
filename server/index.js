@@ -4,7 +4,7 @@ import { join, dirname, extname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
 import { runAgent } from './agent.js';
-import { searchDoctors, getSpecialties } from './doctors.js';
+import { searchDoctors, getSpecialties, getDatabaseStats } from './doctors.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
@@ -73,6 +73,10 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && pathname === '/api/health') {
     return sendJson(res, 200, { ok: true });
+  }
+
+  if (req.method === 'GET' && pathname === '/api/stats') {
+    return sendJson(res, 200, getDatabaseStats());
   }
 
   if (req.method === 'GET' && pathname === '/api/specialties') {

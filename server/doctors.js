@@ -302,6 +302,14 @@ export function getSpecialties() {
   return [...new Set(doctors.map((d) => d.specialty))].sort();
 }
 
+export function getDatabaseStats() {
+  const doctors = loadDoctors();
+  return {
+    doctorCount: doctors.length,
+    specialtyCount: new Set(doctors.map((d) => d.specialty)).size,
+  };
+}
+
 export function getSchedulingContext() {
   const now = new Date();
   return {

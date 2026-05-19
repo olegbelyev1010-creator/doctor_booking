@@ -295,10 +295,10 @@ resetBtnMobile?.addEventListener('click', resetChat);
 
 appendMessage('assistant', WELCOME);
 
-fetch('/api/doctors')
+fetch('/api/stats')
   .then((r) => r.json())
   .then((data) => {
     const el = document.getElementById('doctor-count');
-    if (el && data.doctors) el.textContent = data.doctors.length;
+    if (el && data.doctorCount != null) el.textContent = data.doctorCount;
   })
   .catch(() => {});
