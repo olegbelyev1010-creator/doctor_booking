@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:doctors": "node scripts/generate-doctors.js",
+    "extend:slots": "node scripts/extend-doctor-slots.js",
     "start": "node server/index.js",
     "dev": "node --watch server/index.js"
   },

@@ -1,12 +1,19 @@
 /**
  * Generates doctors.json with doctors for all clinic specialties.
- * Slots: next 7 calendar days.
+ * Slots: from tomorrow through June 30.
  * Run: node scripts/generate-doctors.js
  */
 
 import { writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import {
+  formatDateYMD,
+  generateSlotsThroughEndOfJune,
+  getEndOfJune,
+  randomInt,
+  pick,
+} from './slot-utils.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_PATH = join(__dirname, '..', 'data', 'doctors.json');
@@ -66,42 +73,6 @@ const LAST_NAMES = [
 const PATRONYMICS_M = ['Иванович', 'Петрович', 'Сергеевич', 'Андреевич', 'Дмитриевич', 'Алексеевич'];
 const PATRONYMICS_F = ['Ивановна', 'Петровна', 'Сергеевна', 'Андреевна', 'Дмитриевична', 'Алексеевна'];
 
-const WORK_HOURS_WEEKDAY = [9, 10, 11, 12, 14, 15, 16, 17, 18];
-const WORK_HOURS_WEEKEND = [10, 11, 12, 14, 15];
-
-function randomInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function pick(arr) {
-  return arr[randomInt(0, arr.length - 1)];
-}
-
-/** Слоты на 7 календарных дней вперёд (с сегодняшнего дня не включая) */
-function generateWeekSlots() {
-  const slots = [];
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
-    const date = new Date(today);
-    date.setDate(date.getDate() + dayOffset);
-    const dow = date.getDay();
-    const isWeekend = dow === 0 || dow === 6;
-    const pool = isWeekend ? WORK_HOURS_WEEKEND : WORK_HOURS_WEEKDAY;
-    const count = isWeekend ? randomInt(2, 4) : randomInt(4, 7);
-
-    const hours = [...pool].sort(() => Math.random() - 0.5).slice(0, count);
-    for (const hour of hours) {
-      const slot = new Date(date);
-      slot.setHours(hour, randomInt(0, 1) * 30, 0, 0);
-      slots.push(slot.toISOString());
-    }
-  }
-
-  return slots.sort();
-}
-
 function getConsultationPrice(specialty) {
   const custom = SPECIALTY_PRICES[specialty];
   if (custom?.consultationPrice && typeof custom.consultationPrice === 'number') {
@@ -131,7 +102,7 @@ function generateDoctor(id, specialty) {
     reviewsCount,
     rating,
     consultationPrice: price,
-    slots: generateWeekSlots(),
+    slots: generateSlotsThroughEndOfJune(),
     online: true,
   };
 
@@ -161,7 +132,7 @@ writeFileSync(
       specialties: SPECIALTIES,
       doctorsPerSpecialty,
       doctorsPerSpecialtyRange: [MIN_DOCTORS_PER_SPECIALTY, MAX_DOCTORS_PER_SPECIALTY],
-      slotsDaysAhead: 7,
+      slotsThrough: formatDateYMD(getEndOfJune()),
       count: doctors.length,
       doctors,
     },
@@ -174,5 +145,7 @@ writeFileSync(
 console.log(
   `Generated ${doctors.length} doctors (${SPECIALTIES.length} specialties, ${MIN_DOCTORS_PER_SPECIALTY}–${MAX_DOCTORS_PER_SPECIALTY} each)`
 );
-console.log(`Slots: 7 days ahead, ~${Math.round(doctors.reduce((s, d) => s + d.slots.length, 0) / doctors.length)} per doctor on average`);
+console.log(
+  `Slots through ${formatDateYMD(getEndOfJune())}, ~${Math.round(doctors.reduce((s, d) => s + d.slots.length, 0) / doctors.length)} per doctor on average`
+);
 console.log(`-> ${OUT_PATH}`);
