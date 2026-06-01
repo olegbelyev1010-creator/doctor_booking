@@ -67,9 +67,14 @@ function getBookedSlots(doctorId) {
   );
 }
 
+/** Слот ещё не наступил (сравнение по абсолютному времени ISO). */
+export function isSlotInFuture(iso) {
+  return new Date(iso).getTime() > Date.now();
+}
+
 function getAvailableSlotsForDoctor(doctor) {
   const booked = getBookedSlots(doctor.id);
-  return doctor.slots.filter((s) => !booked.has(s));
+  return doctor.slots.filter((s) => !booked.has(s) && isSlotInFuture(s));
 }
 
 function getSlotLocalParts(iso) {
@@ -198,7 +203,7 @@ export function searchDoctors({
       ? available.filter((iso) => slotMatchesTimeFilter(iso, timeFilter))
       : available;
 
-    if (filterByTime && matching.length === 0) continue;
+    if (matching.length === 0) continue;
 
     results.push(mapDoctorSummary(d, matching));
   }
@@ -260,6 +265,10 @@ export function createBooking({ doctorId, slot, patientName, patientPhone, patie
 
   if (!doctor.slots.includes(slot)) {
     return { success: false, error: 'Слот недоступен у этого врача' };
+  }
+
+  if (!isSlotInFuture(slot)) {
+    return { success: false, error: 'Нельзя записаться на прошедшее время' };
   }
 
   const bookings = loadBookings();
