@@ -7,6 +7,8 @@ const DOCTORS_PATH = join(__dirname, '..', 'data', 'doctors.json');
 const BOOKINGS_PATH = join(__dirname, '..', 'data', 'bookings.json');
 const TIMEZONE = 'Europe/Moscow';
 const MAX_DOCTORS_IN_SEARCH = 3;
+const MAX_SLOTS_LISTED = 12;
+const SLOT_HORIZON_DAYS = 14;
 
 const SPECIALTY_ALIASES = {
   стоматолог: 'стоматолог-терапевт',
@@ -72,6 +74,20 @@ export function isSlotInFuture(iso) {
   return new Date(iso).getTime() > Date.now();
 }
 
+function sortSlotsAsc(slots) {
+  return [...slots].sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+}
+
+/** Слоты в ближайшие N календарных дней (для показа пациенту). */
+export function filterSlotsWithinHorizon(slots, days = SLOT_HORIZON_DAYS) {
+  const now = Date.now();
+  const horizonEnd = now + days * 24 * 60 * 60 * 1000;
+  return slots.filter((iso) => {
+    const t = new Date(iso).getTime();
+    return t > now && t <= horizonEnd;
+  });
+}
+
 function getAvailableSlotsForDoctor(doctor) {
   const booked = getBookedSlots(doctor.id);
   return doctor.slots.filter((s) => !booked.has(s) && isSlotInFuture(s));
@@ -131,10 +147,10 @@ function formatSlot(iso) {
 }
 
 function mapDoctorSummary(d, matchingSlots) {
-  const sortedSlots = [...matchingSlots].sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime()
-  );
-  const earliest = sortedSlots[0] ?? null;
+  const sortedAll = sortSlotsAsc(matchingSlots);
+  const horizonSlots = filterSlotsWithinHorizon(sortedAll);
+  const displayPool = horizonSlots.length > 0 ? horizonSlots : sortedAll;
+  const earliest = sortedAll[0] ?? null;
 
   return {
     id: d.id,
@@ -148,12 +164,12 @@ function mapDoctorSummary(d, matchingSlots) {
     earliestSlot: earliest
       ? { iso: earliest, formatted: formatSlot(earliest) }
       : null,
-    availableSlotsCount: sortedSlots.length,
-    slotsInRequestedWindow: sortedSlots.slice(0, 6).map((iso) => ({
+    availableSlotsCount: sortedAll.length,
+    slotsInRequestedWindow: displayPool.slice(0, 6).map((iso) => ({
       iso,
       formatted: formatSlot(iso),
     })),
-    nextSlots: sortedSlots.slice(0, 3).map(formatSlot),
+    nextSlots: displayPool.slice(0, 3).map(formatSlot),
   };
 }
 
@@ -164,37 +180,39 @@ function compareDoctorsForSelection(a, b) {
   return b.rating - a.rating;
 }
 
-export function searchDoctors({
-  specialty,
-  gender,
-  minRating,
-  minExperience,
-  slotDate,
-  slotTimeFrom,
-  slotTimeTo,
-  dayOfWeek,
-} = {}) {
-  let list = loadDoctors();
-  const timeFilter = { slotDate, slotTimeFrom, slotTimeTo, dayOfWeek };
+function buildSelectionInfo({ totalFound, dateFilterRelaxed, requestedDate }) {
+  if (totalFound === 0) {
+    return {
+      criteria: 'none',
+      bannerText: null,
+      userHint: 'Свободных врачей по заданным фильтрам не найдено.',
+      agentInstruction:
+        'Не используйте blockquote про «ближайшее время». Сообщите, что по запросу никого не найдено, и предложите другой день или специальность.',
+    };
+  }
+
+  if (dateFilterRelaxed) {
+    return {
+      criteria: 'nearest_time_and_best_rating',
+      bannerText: 'Ближайшие свободные слоты',
+      userHint: `На запрошенную дату (${requestedDate}) мест нет; показаны ближайшие доступные.`,
+      agentInstruction:
+        `Начните с blockquote: > На **${requestedDate}** свободных слотов нет. Показаны **ближайшие доступные** варианты. Затем перечислите врачей из doctors с earliestSlot и slotsInRequestedWindow. Не говорите, что врачей нет.`,
+    };
+  }
+
+  return {
+    criteria: 'nearest_time_and_best_rating',
+    bannerText: 'На ближайшее время · лучший рейтинг',
+    userHint:
+      'Показаны до 3 врачей с самым ранним свободным приёмом; при равной дате — с более высоким рейтингом.',
+    agentInstruction:
+      'Начните ответ строкой (blockquote): > ⏱ Подобраны варианты на **ближайшее время** с **лучшим рейтингом**. Затем список врачей. У каждого врача обязательно укажите earliestSlot и слоты только из slotsInRequestedWindow (уже ближайшие). Не предлагайте даты позже, если в этих полях есть более ранние. Не пропускайте эту пометку.',
+  };
+}
+
+function searchDoctorsOnList(list, timeFilter) {
   const filterByTime = hasTimeFilter(timeFilter);
-
-  if (specialty) {
-    const s = normalizeSpecialtyQuery(specialty);
-    const exact = list.filter((d) => d.specialty.toLowerCase() === s);
-    list = exact.length
-      ? exact
-      : list.filter((d) => d.specialty.toLowerCase().includes(s));
-  }
-  if (gender) {
-    list = list.filter((d) => d.gender === gender);
-  }
-  if (minRating != null) {
-    list = list.filter((d) => d.rating >= Number(minRating));
-  }
-  if (minExperience != null) {
-    list = list.filter((d) => d.experienceYears >= Number(minExperience));
-  }
-
   const results = [];
 
   for (const d of list) {
@@ -216,20 +234,107 @@ export function searchDoctors({
     rank: i + 1,
   }));
 
+  return { doctors, totalFound, shown: doctors.length };
+}
+
+export function searchDoctors({
+  specialty,
+  gender,
+  minRating,
+  minExperience,
+  slotDate,
+  slotTimeFrom,
+  slotTimeTo,
+  dayOfWeek,
+} = {}) {
+  let list = loadDoctors();
+
+  if (specialty) {
+    const s = normalizeSpecialtyQuery(specialty);
+    const exact = list.filter((d) => d.specialty.toLowerCase() === s);
+    list = exact.length
+      ? exact
+      : list.filter((d) => d.specialty.toLowerCase().includes(s));
+  }
+  if (gender) {
+    list = list.filter((d) => d.gender === gender);
+  }
+  if (minRating != null) {
+    list = list.filter((d) => d.rating >= Number(minRating));
+  }
+  if (minExperience != null) {
+    list = list.filter((d) => d.experienceYears >= Number(minExperience));
+  }
+
+  const timeFilter = { slotDate, slotTimeFrom, slotTimeTo, dayOfWeek };
+  let searchResult = searchDoctorsOnList(list, timeFilter);
+  let dateFilterRelaxed = false;
+  let requestedDate = slotDate ?? null;
+
+  if (searchResult.totalFound === 0 && hasTimeFilter(timeFilter)) {
+    const relaxed = searchDoctorsOnList(list, {
+      slotDate: undefined,
+      slotTimeFrom,
+      slotTimeTo,
+      dayOfWeek,
+    });
+    if (relaxed.totalFound > 0) {
+      searchResult = relaxed;
+      dateFilterRelaxed = true;
+    }
+  }
+
+  const { doctors, totalFound, shown } = searchResult;
+
   return {
     doctors,
     totalFound,
-    shown: doctors.length,
+    shown,
     maxShown: MAX_DOCTORS_IN_SEARCH,
-    selectionInfo: {
-      criteria: 'nearest_time_and_best_rating',
-      bannerText: 'На ближайшее время · лучший рейтинг',
-      userHint:
-        'Показаны до 3 врачей с самым ранним свободным приёмом; при равной дате — с более высоким рейтингом.',
-      agentInstruction:
-        'Начните ответ строкой (blockquote): > ⏱ Подобраны варианты на **ближайшее время** с **лучшим рейтингом**. Затем список врачей. Не пропускайте эту пометку.',
-    },
+    dateFilterRelaxed,
+    requestedDate: dateFilterRelaxed ? requestedDate : null,
+    selectionInfo: buildSelectionInfo({ totalFound, dateFilterRelaxed, requestedDate }),
   };
+}
+
+/** Готовый ответ пациенту со списком ближайших слотов (без участия LLM). */
+export function buildSearchDoctorsPatientReply(result) {
+  if (!result?.totalFound) {
+    return (
+      'К сожалению, свободных врачей по вашему запросу сейчас нет. ' +
+      'Напишите, пожалуйста, удобный день и время — подберу варианты.'
+    );
+  }
+
+  let intro;
+  if (result.dateFilterRelaxed && result.requestedDate) {
+    intro =
+      `> На **${result.requestedDate}** свободных слотов нет. Показаны **ближайшие доступные** варианты.\n\n`;
+  } else {
+    intro =
+      '> ⏱ Подобраны варианты на **ближайшее время** с **лучшим рейтингом**.\n\n';
+  }
+
+  const blocks = result.doctors.map((d) => {
+    const slots = d.slotsInRequestedWindow.map((s) => s.formatted).join('; ');
+    const price =
+      d.consultationPrice != null ? ` · ${d.consultationPrice} ₽` : '';
+    return (
+      `**${d.rank}. ${d.name}** — ${d.specialty}, рейтинг ${d.rating}${price}\n` +
+      `Ближайший приём: **${d.earliestSlot?.formatted ?? '—'}**\n` +
+      `Свободно: ${slots}`
+    );
+  });
+
+  let more = '';
+  if (result.totalFound > result.shown) {
+    more = `\n\n_Есть ещё ${result.totalFound - result.shown} врач(ей) в базе — уточните, если нужно._`;
+  }
+
+  const closing =
+    '\n\nНапишите, пожалуйста, **к какому врачу** и **на какое время** записать.';
+
+  return intro + blocks.join('\n\n') + more + closing;
 }
 
 export function getDoctorById(doctorId) {
@@ -240,20 +345,30 @@ export function getDoctorSlots(doctorId, timeFilter = {}) {
   const doctor = getDoctorById(doctorId);
   if (!doctor) return null;
 
-  let available = getAvailableSlotsForDoctor(doctor);
+  let available = sortSlotsAsc(getAvailableSlotsForDoctor(doctor));
 
   if (hasTimeFilter(timeFilter)) {
     available = available.filter((iso) => slotMatchesTimeFilter(iso, timeFilter));
   }
 
+  const totalAvailable = available.length;
+  const listed = available.slice(0, MAX_SLOTS_LISTED);
+  const earliest = listed[0] ?? null;
+
   return {
     doctorId: doctor.id,
     doctorName: doctor.name,
     specialty: doctor.specialty,
-    slots: available.map((iso) => ({
+    totalAvailable,
+    shown: listed.length,
+    earliestSlot: earliest
+      ? { iso: earliest, formatted: formatSlot(earliest) }
+      : null,
+    slots: listed.map((iso) => ({
       iso,
       formatted: formatSlot(iso),
     })),
+    hint: 'Список отсортирован от ближайшего времени. Предлагайте пациенту сначала earliestSlot и первые слоты из slots.',
   };
 }
 

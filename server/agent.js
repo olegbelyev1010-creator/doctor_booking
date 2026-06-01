@@ -1,11 +1,13 @@
 import {
   searchDoctors,
+  buildSearchDoctorsPatientReply,
   getDoctorSlots,
   createBooking,
   getSpecialties,
   listBookingsByPhone,
   getSchedulingContext,
 } from './doctors.js';
+import { prepareSearchDoctorsArgs, prepareDoctorSlotsArgs } from './scheduling-args.js';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -33,7 +35,8 @@ const TOOLS = [
           minExperience: { type: 'number', description: 'Минимальный стаж в годах' },
           slotDate: {
             type: 'string',
-            description: 'Дата YYYY-MM-DD (московское время), если пациент назвал день',
+            description:
+              'Дата YYYY-MM-DD только если пациент ЯВНО назвал день («сегодня», «завтра», «15 июня»). НЕ передавайте для запросов вроде «запишите к дерматологу» без даты.',
           },
           dayOfWeek: {
             type: 'string',
@@ -47,7 +50,7 @@ const TOOLS = [
               'sunday',
             ],
             description:
-              'День недели на английском, если пациент сказал «в субботу» и т.п. (можно вместе с slotDate)',
+              'Только если пациент ЯВНО назвал день недели («в субботу»). НЕ передавайте, если он просто назвал специальность.',
           },
           slotTimeFrom: {
             type: 'string',
@@ -74,7 +77,7 @@ const TOOLS = [
     function: {
       name: 'get_doctor_slots',
       description:
-        'Свободные слоты врача. Передавай те же slotDate/dayOfWeek/slotTimeFrom/slotTimeTo, если пациент уже назвал время.',
+        'Свободные слоты врача (до 12 ближайших, отсортированы). Сначала предлагай earliestSlot и первые slots. Передавай slotDate/dayOfWeek/slotTimeFrom/slotTimeTo, если пациент назвал время.',
       parameters: {
         type: 'object',
         properties: {
@@ -134,14 +137,23 @@ const TOOLS = [
   },
 ];
 
-function executeTool(name, args) {
+function runSearchDoctors(args, conversation) {
+  const result = searchDoctors(prepareSearchDoctorsArgs(args, conversation));
+  return {
+    ...result,
+    formattedPatientReply: buildSearchDoctorsPatientReply(result),
+  };
+}
+
+function executeTool(name, args, conversation) {
   switch (name) {
     case 'search_doctors':
-      return searchDoctors(args);
+      return runSearchDoctors(args, conversation);
     case 'get_specialties':
       return { specialties: getSpecialties() };
     case 'get_doctor_slots': {
-      const { doctorId, slotDate, slotTimeFrom, slotTimeTo, dayOfWeek } = args;
+      const prepared = prepareDoctorSlotsArgs(args, conversation);
+      const { doctorId, slotDate, slotTimeFrom, slotTimeTo, dayOfWeek } = prepared;
       const result = getDoctorSlots(doctorId, {
         slotDate,
         slotTimeFrom,
@@ -174,15 +186,16 @@ function buildSystemPrompt() {
 
 Логика записи:
 1. Если пациент назвал специальность — сразу search_doctors. Не спрашивайте, что беспокоит.
-2. После search_doctors ОБЯЗАТЕЛЬНО подсветите критерий подбора — начните с blockquote из selectionInfo.agentInstruction (ближайшее время + лучший рейтинг). Показывайте не более 3 врачей. Если totalFound > shown — скажите, что есть ещё варианты.
-3. Если пациент указал день и/или время — передайте в search_doctors slotDate, dayOfWeek, slotTimeFrom, slotTimeTo. Показывайте только врачей из ответа со слотами в slotsInRequestedWindow.
-4. У каждого врача указывайте конкретные свободные слоты из slotsInRequestedWindow.
-5. После списка врачей завершайте фразой (именно так): «Напишите, пожалуйста, **к какому врачу** и **на какое время** записать.» Не используйте «какого врача».
-6. Если по времени никого нет — честно скажите и предложите другое окно или день.
-7. Пол врача — НЕ обязателен. Не спрашивайте, фильтр gender — только если пациент сам попросил.
-8. Если специальность не ясна — спросите: «К какому специалисту записать?»
-9. После выбора врача и слота — book_appointment (slot = iso из ответа инструмента).
-10. Для записи нужны ФИО и телефон. Подтвердите: врач, дата/время, номер записи.
+2. После search_doctors следуйте selectionInfo.agentInstruction. Blockquote «ближайшее время» — только если totalFound > 0. Показывайте врачей из doctors (до 3). Если totalFound > shown — скажите, что есть ещё варианты.
+3. slotDate / dayOfWeek / slotTimeFrom / slotTimeTo передавайте ТОЛЬКО если пациент явно назвал день или время. «Запишите к дерматологу» — без slotDate (слоты обычно с завтра). Если dateFilterRelaxed: true — скажите, что на запрошенную дату мест нет, и покажите врачей из ответа.
+4. У каждого врача указывайте слоты только из slotsInRequestedWindow (и поле earliestSlot) — это уже ближайшие даты. Не предлагайте более поздние даты, пока в этих полях есть более ранние.
+5. get_doctor_slots вызывайте только после выбора врача; предлагайте earliestSlot и первые слоты из ответа, не даты из середины списка.
+6. После списка врачей завершайте фразой (именно так): «Напишите, пожалуйста, **к какому врачу** и **на какое время** записать.» Не используйте «какого врача».
+7. Если по времени никого нет — честно скажите и предложите другое окно или день.
+8. Пол врача — НЕ обязателен. Не спрашивайте, фильтр gender — только если пациент сам попросил.
+9. Если специальность не ясна — спросите: «К какому специалисту записать?»
+10. После выбора врача и слота — book_appointment (slot = iso из ответа инструмента).
+11. Для записи нужны ФИО и телефон. Подтвердите: врач, дата/время, номер записи.
 
 Прочее:
 - Свои записи — list_my_bookings по телефону.
@@ -237,6 +250,8 @@ export async function runAgent(messages, { apiKey, model }) {
       };
     }
 
+    let searchDoctorsResult = null;
+
     for (const tc of toolCalls) {
       const fnName = tc.function.name;
       let fnArgs = {};
@@ -246,13 +261,24 @@ export async function runAgent(messages, { apiKey, model }) {
         fnArgs = {};
       }
 
-      const result = executeTool(fnName, fnArgs);
+      const result = executeTool(fnName, fnArgs, conversation);
+
+      if (fnName === 'search_doctors') {
+        searchDoctorsResult = result;
+      }
 
       conversation.push({
         role: 'tool',
         tool_call_id: tc.id,
         content: JSON.stringify(result, null, 2),
       });
+    }
+
+    if (searchDoctorsResult?.totalFound > 0) {
+      return {
+        reply: searchDoctorsResult.formattedPatientReply,
+        messages: conversation.slice(1),
+      };
     }
   }
 
